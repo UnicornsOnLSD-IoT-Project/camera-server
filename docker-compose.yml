@@ -1,0 +1,19 @@
+services:
+  camera-server:
+    build: .
+    restart: always
+    environment: 
+      DATABASE_URL: postgres://8W6Gz8wKn5CEBVBrzN3yFsVeShV8LzUu:fVKnE9BXN4cVzQuvJESP35DDqeRrtzMq@localhost/camera-server-db
+    ports: 
+      - "8000:8000"
+    depends_on:
+      - db
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: camera-server-db
+      POSTGRES_USER: 8W6Gz8wKn5CEBVBrzN3yFsVeShV8LzUu
+      POSTGRES_PASSWORD: fVKnE9BXN4cVzQuvJESP35DDqeRrtzMq
+    ports:
+      - "127.0.0.1:5432:5432"
