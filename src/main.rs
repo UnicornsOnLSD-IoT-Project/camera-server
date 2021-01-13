@@ -7,28 +7,43 @@ extern crate diesel;
 #[macro_use]
 extern crate rocket_contrib;
 
+extern crate bcrypt;
+
 mod schema;
 mod user;
 
-use rocket_contrib::json::Json;
+use rocket::http::{ContentType, Status};
+use rocket::request::Request;
+use rocket::response;
+use rocket::response::{Responder, Response};
+use rocket_contrib::json::{Json, JsonValue};
 
 #[database("camera-server-db")]
-struct CameraServerDbConn(diesel::PgConnection);
+pub struct CameraServerDbConn(diesel::PgConnection);
+
+#[derive(Debug)]
+pub struct ApiResponse {
+    json: JsonValue,
+    status: Status,
+}
+
+impl<'r> Responder<'r> for ApiResponse {
+    fn respond_to(self, req: &Request) -> response::Result<'r> {
+        Response::build_from(self.json.respond_to(&req).unwrap())
+            .status(self.status)
+            .header(ContentType::JSON)
+            .ok()
+    }
+}
 
 #[get("/")]
 fn index(conn: CameraServerDbConn) -> Json<Vec<user::User>> {
     Json(user::all(&conn).unwrap())
 }
 
-#[get("/add/<username>/<password>")]
-fn add(conn: CameraServerDbConn, username: String, password: String) -> &'static str {
-    user::insert(user::InsertableUser { username, password }, &conn).expect("Something went wrong");
-    "Did it work?"
-}
-
 fn main() {
     rocket::ignite()
         .attach(CameraServerDbConn::fairing())
-        .mount("/", routes![index, add])
+        .mount("/", routes![index, user::add_user])
         .launch();
 }
