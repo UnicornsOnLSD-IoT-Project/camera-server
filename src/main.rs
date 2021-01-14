@@ -11,11 +11,13 @@ extern crate bcrypt;
 
 mod schema;
 mod user;
+mod user_tokens;
 
-use rocket::http::{ContentType, Status};
 use rocket::request::Request;
 use rocket::response;
 use rocket::response::{Responder, Response};
+
+use rocket::http::{ContentType, Status};
 use rocket_contrib::json::{Json, JsonValue};
 
 #[database("camera-server-db")]
@@ -41,9 +43,18 @@ fn index(conn: CameraServerDbConn) -> Json<Vec<user::User>> {
     Json(user::all(&conn).unwrap())
 }
 
+#[get("/whoami")]
+fn whoami(token: user_tokens::UserToken) -> String {
+    format!(
+        "Hello, {}. The token you used was {}",
+        token.user_id.to_string(),
+        token.token.to_string()
+    )
+}
+
 fn main() {
     rocket::ignite()
         .attach(CameraServerDbConn::fairing())
-        .mount("/", routes![index, user::add_user])
+        .mount("/", routes![index, whoami, user::add_user])
         .launch();
 }
