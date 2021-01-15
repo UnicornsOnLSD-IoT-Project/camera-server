@@ -55,6 +55,6 @@ fn whoami(token: user_tokens::UserToken) -> String {
 fn main() {
     rocket::ignite()
         .attach(CameraServerDbConn::fairing())
-        .mount("/", routes![index, whoami, user::add_user])
+        .mount("/", routes![index, whoami, user::add_user, user::login])
         .launch();
 }

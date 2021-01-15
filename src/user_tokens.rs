@@ -19,7 +19,7 @@ pub enum TokenError {
     NoTokenProvided,
 }
 
-#[derive(Queryable, AsChangeset, Deserialize, Serialize)]
+#[derive(Queryable, AsChangeset, Deserialize, Serialize, Debug)]
 #[table_name = "user_tokens"]
 pub struct UserToken {
     pub token: uuid::Uuid,
