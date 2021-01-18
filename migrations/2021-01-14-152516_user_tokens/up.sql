@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE user_tokens (
     token uuid PRIMARY KEY DEFAULT uuid_generate_v4() NOT NULL UNIQUE,
     user_id uuid NOT NULL,

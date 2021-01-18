@@ -9,6 +9,7 @@ extern crate rocket_contrib;
 
 extern crate bcrypt;
 
+mod camera;
 mod schema;
 mod user;
 mod user_tokens;
