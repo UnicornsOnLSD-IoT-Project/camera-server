@@ -10,9 +10,14 @@ extern crate rocket_contrib;
 extern crate bcrypt;
 
 mod camera;
+mod camera_tokens;
+mod enums {
+    pub mod token_error;
+}
 mod schema;
 mod user;
 mod user_tokens;
+mod users_cameras;
 
 use rocket::request::Request;
 use rocket::response;
@@ -56,6 +61,15 @@ fn whoami(token: user_tokens::UserToken) -> String {
 fn main() {
     rocket::ignite()
         .attach(CameraServerDbConn::fairing())
-        .mount("/", routes![index, whoami, user::add_user, user::login])
+        .mount(
+            "/",
+            routes![
+                index,
+                whoami,
+                user::add_user,
+                user::login,
+                camera::add_new_camera
+            ],
+        )
         .launch();
 }

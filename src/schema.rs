@@ -1,6 +1,14 @@
 table! {
+    camera_tokens (camera_token) {
+        camera_token -> Uuid,
+        camera_id -> Uuid,
+    }
+}
+
+table! {
     cameras (camera_id) {
         camera_id -> Uuid,
+        name -> Text,
     }
 }
 
@@ -27,9 +35,8 @@ table! {
     }
 }
 
-joinable!(users_cameras -> cameras (camera_id));
-
 allow_tables_to_appear_in_same_query!(
+    camera_tokens,
     cameras,
     user_tokens,
     users,

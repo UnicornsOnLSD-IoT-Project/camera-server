@@ -1,4 +1,4 @@
-use crate::CameraServerDbConn;
+use crate::{enums::token_error::TokenError, CameraServerDbConn};
 
 use super::schema::user_tokens;
 
@@ -11,13 +11,6 @@ use rocket::{
     Outcome, Request,
 };
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug)]
-pub enum TokenError {
-    ParseError,
-    NotFound,
-    NoTokenProvided,
-}
 
 #[derive(Queryable, AsChangeset, Deserialize, Serialize, Debug)]
 #[table_name = "user_tokens"]
