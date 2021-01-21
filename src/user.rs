@@ -65,7 +65,7 @@ impl UserInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthentiationResult {
     pub user_info: UserInfo,
-    pub token: UserToken,
+    pub user_token: UserToken,
 }
 
 pub fn all(connection: &PgConnection) -> QueryResult<Vec<User>> {
@@ -202,7 +202,7 @@ pub fn login(conn: CameraServerDbConn, user_login: Json<InsertableUser>) -> ApiR
                 user_id: user.user_id,
                 username: user.username,
             },
-            token: token,
+            user_token: token,
         }),
         status: Status::Ok,
     };

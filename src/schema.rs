@@ -13,8 +13,8 @@ table! {
 }
 
 table! {
-    user_tokens (token) {
-        token -> Uuid,
+    user_tokens (user_token) {
+        user_token -> Uuid,
         user_id -> Uuid,
     }
 }

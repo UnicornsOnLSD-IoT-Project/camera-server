@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Queryable, AsChangeset, Deserialize, Serialize, Debug)]
 #[table_name = "user_tokens"]
 pub struct UserToken {
-    pub token: uuid::Uuid,
+    pub user_token: uuid::Uuid,
     pub user_id: uuid::Uuid,
 }
 
@@ -23,7 +23,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for UserToken {
     type Error = TokenError;
 
     fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
-        let token = request.headers().get_one("token");
+        let token = request.headers().get_one("user_token");
         match token {
             Some(token) => {
                 let parsed_token = match uuid::Uuid::parse_str(token) {
@@ -66,9 +66,9 @@ pub fn all(connection: &PgConnection) -> QueryResult<Vec<UserToken>> {
     user_tokens::table.load::<UserToken>(&*connection)
 }
 
-pub fn get(token: uuid::Uuid, connection: &PgConnection) -> QueryResult<UserToken> {
+pub fn get(user_token: uuid::Uuid, connection: &PgConnection) -> QueryResult<UserToken> {
     user_tokens::table
-        .find(token)
+        .find(user_token)
         .get_result::<UserToken>(connection)
 }
 
@@ -82,15 +82,15 @@ pub fn insert(
 }
 
 pub fn update(
-    token: uuid::Uuid,
+    user_id: uuid::Uuid,
     user_token: UserToken,
     connection: &PgConnection,
 ) -> QueryResult<UserToken> {
-    diesel::update(user_tokens::table.find(token))
+    diesel::update(user_tokens::table.find(user_id))
         .set(&user_token)
         .get_result(connection)
 }
 
-pub fn delete(token: uuid::Uuid, connection: &PgConnection) -> QueryResult<usize> {
-    diesel::delete(user_tokens::table.find(token)).execute(connection)
+pub fn delete(user_token: uuid::Uuid, connection: &PgConnection) -> QueryResult<usize> {
+    diesel::delete(user_tokens::table.find(user_token)).execute(connection)
 }

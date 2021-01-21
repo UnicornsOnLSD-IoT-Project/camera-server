@@ -50,11 +50,11 @@ fn index(conn: CameraServerDbConn) -> Json<Vec<user::User>> {
 }
 
 #[get("/whoami")]
-fn whoami(token: user_tokens::UserToken) -> String {
+fn whoami(user_token: user_tokens::UserToken) -> String {
     format!(
         "Hello, {}. The token you used was {}",
-        token.user_id.to_string(),
-        token.token.to_string()
+        user_token.user_id.to_string(),
+        user_token.user_token.to_string()
     )
 }
 
@@ -68,7 +68,8 @@ fn main() {
                 whoami,
                 user::add_user,
                 user::login,
-                camera::add_new_camera
+                camera::add_new_camera,
+                camera::upload_image,
             ],
         )
         .launch();
