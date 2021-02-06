@@ -1,6 +1,6 @@
 use crate::{
+    api_error::ApiError,
     user_tokens::{self, UserToken},
-    ApiResponse,
 };
 
 use super::schema::users;
@@ -112,98 +112,115 @@ pub fn is_login_valid(username: String, password: String, connection: &PgConnect
 }
 
 #[post("/AddUser", format = "json", data = "<new_user>")]
-pub fn add_user(conn: CameraServerDbConn, new_user: Json<InsertableUser>) -> ApiResponse {
-    let new_user_decoded = new_user.into_inner();
-
-    if new_user_decoded.password.chars().count() < 8 {
-        return ApiResponse {
-            json: json!({"error": "Password must be at least 8 characters long"}),
+pub fn add_user(
+    conn: CameraServerDbConn,
+    new_user: Json<InsertableUser>,
+) -> Result<Json<UserToken>, ApiError> {
+    if new_user.password.chars().count() < 8 {
+        return Err(ApiError {
+            error: "Password must be at least 8 characters long",
             status: Status::UnprocessableEntity,
-        };
+        });
     }
 
-    // if get_by_username(new_user_decoded.username.clone(), &conn) {
-    //     return ApiResponse {
-    //         json: json!({"error": "Username already exists"}),
-    //         status: Status::Conflict,
-    //     };
-    // }
-    match get_by_username(new_user_decoded.username.clone(), &conn) {
+    // Tries a DB request with the new username. If something comes back, return an error saying the username already exists
+    match get_by_username(new_user.username.clone(), &conn) {
         Ok(_) => {
-            return ApiResponse {
-                json: json!({"error": "Username already exists"}),
+            return Err(ApiError {
+                error: "Username already exists",
                 status: Status::Conflict,
-            };
+            });
         }
         Err(_) => {}
     }
 
     let new_user_insertable = InsertableUser {
-        username: new_user_decoded.username,
-        password: bcrypt::hash(new_user_decoded.password, bcrypt::DEFAULT_COST).unwrap(),
+        username: new_user.username.clone(),
+        password: bcrypt::hash(new_user.password.clone(), bcrypt::DEFAULT_COST).unwrap(),
     };
 
-    let new_user_inserted = insert(new_user_insertable, &conn).unwrap();
+    // Inserts the new username/pass into the db. Returns a User object, which included the new UUID.
+    let new_user_inserted = insert(new_user_insertable, &conn).map_err(|error| {
+        println!("Failed to insert user into table! The error was: {}", error);
+        ApiError {
+            error: "Failed to insert user into table",
+            status: Status::InternalServerError,
+        }
+    })?;
+
+    // Inserts the new user into the token table in order to get a token. If this fails, try to undo what we've done.
     let new_user_token = user_tokens::insert(
         InsertableUserToken {
             user_id: new_user_inserted.user_id,
         },
         &conn,
     )
-    .unwrap();
-    return ApiResponse {
-        json: json!(new_user_token),
-        status: Status::Created,
-    };
+    .map_err(|error| {
+        println!(
+            "Failed to get new token for user {} (id: {}). The error was {}",
+            new_user.username, new_user_inserted.user_id, error
+        );
+        delete(new_user_inserted.user_id, &conn)
+            .expect("Failed to delete user id while handling token insert error!");
+        ApiError {
+            error: "Failed to generate token",
+            status: Status::InternalServerError,
+        }
+    })?;
+
+    Ok(Json(new_user_token))
 }
 
 /// Generates a new token for the given user. Actual login checking is handled in the UserLogin request guard.
 #[post("/Login", format = "json", data = "<user_login>")]
-pub fn login(conn: CameraServerDbConn, user_login: Json<InsertableUser>) -> ApiResponse {
+pub fn login(
+    conn: CameraServerDbConn,
+    user_login: Json<InsertableUser>,
+) -> Result<Json<AuthentiationResult>, ApiError> {
     if !is_login_valid(
         user_login.username.clone(),
         user_login.password.clone(),
         &conn,
     ) {
-        return ApiResponse {
-            json: json!({"error": "Incorrect username or password"}),
+        return Err(ApiError {
+            error: "Invalid username or password",
             status: Status::Unauthorized,
-        };
+        });
     }
 
-    let user = match get_by_username(user_login.username.clone(), &conn) {
-        Ok(result) => result,
-        Err(_) => {
-            return ApiResponse {
-                json: json!({"error": "Failed to get user id from username"}),
-                status: Status::InternalServerError,
-            }
+    let user = get_by_username(user_login.username.clone(), &conn).map_err(|error| {
+        println!(
+            "Failed to get user id from username {}. The error was: {}",
+            user_login.username, error
+        );
+        ApiError {
+            error: "Failed to get user id from username",
+            status: Status::InternalServerError,
         }
-    };
+    })?;
 
-    let token = match user_tokens::insert(
+    let token = user_tokens::insert(
         user_tokens::InsertableUserToken {
             user_id: user.user_id,
         },
         &conn,
-    ) {
-        Ok(result) => result,
-        Err(_) => {
-            return ApiResponse {
-                json: json!({"error": "Failed to create token"}),
-                status: Status::InternalServerError,
-            }
+    )
+    .map_err(|error| {
+        println!(
+            "Failed to create token for user {}. The error was {}",
+            user_login.username, error
+        );
+        ApiError {
+            error: "Failed to create token",
+            status: Status::InternalServerError,
         }
-    };
+    })?;
 
-    return ApiResponse {
-        json: json!(AuthentiationResult {
-            user_info: UserInfo {
-                user_id: user.user_id,
-                username: user.username,
-            },
-            user_token: token,
-        }),
-        status: Status::Ok,
-    };
+    Ok(Json(AuthentiationResult {
+        user_info: UserInfo {
+            user_id: user.user_id,
+            username: user.username,
+        },
+        user_token: token,
+    }))
 }

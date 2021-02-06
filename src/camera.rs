@@ -1,7 +1,8 @@
 use crate::{
+    api_error::ApiError,
     camera_tokens, user_tokens,
     users_cameras::{self, InsertableUsersCamera},
-    ApiResponse, CameraServerDbConn,
+    CameraServerDbConn,
 };
 
 use super::schema::cameras;
@@ -9,11 +10,7 @@ use camera_tokens::{CameraToken, InsertableCameraToken};
 use diesel::prelude::*;
 use diesel::{self};
 use rocket::post;
-use rocket::response::Debug;
-use rocket::{
-    http::{RawStr, Status},
-    Data,
-};
+use rocket::{http::Status, Data};
 use rocket_contrib::json::Json;
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
@@ -73,58 +70,66 @@ pub fn add_new_camera(
     conn: CameraServerDbConn,
     user_token: user_tokens::UserToken,
     name: String,
-) -> ApiResponse {
-    match insert(InsertableCamera { name: name }, &conn) {
-        Ok(new_camera) => match camera_tokens::insert(
-            InsertableCameraToken {
-                camera_id: new_camera.camera_id,
-            },
-            &conn,
-        ) {
-            Ok(new_camera_token) => match users_cameras::insert(
-                InsertableUsersCamera {
-                    camera_id: new_camera.camera_id,
-                    user_id: user_token.user_id,
-                },
-                &conn,
-            ) {
-                Ok(_) => {
-                    return ApiResponse {
-                        json: json!(new_camera_token),
-                        status: Status::Created,
-                    }
-                }
-                Err(_) => {
-                    camera_tokens::delete(new_camera.camera_id, &conn).expect("Failed to delete new camera token while handling pair user to camera error");
-                    delete(new_camera.camera_id, &conn).expect(
-                        "Failed to delete new camera while handling pair user to camera error",
-                    );
-                    return ApiResponse {
-                        json: json!({"error": "Failed to pair user to camera"}),
-                        status: Status::InternalServerError,
-                    };
-                }
-            },
-            Err(_) => {
-                delete(new_camera.camera_id, &conn)
-                    .expect("Failed to delete new camera while handling camera token error");
-                return ApiResponse {
-                    json: json!({"error": "Failed to add camera token"}),
-                    status: Status::InternalServerError,
-                };
-            }
-        },
-        Err(_) => {
-            return ApiResponse {
-                json: json!({"error": "Failed to create new camera"}),
-                status: Status::InternalServerError,
-            }
+) -> Result<Json<CameraToken>, ApiError> {
+    // Insert a new camera into the DB. Returns the ID for the new camera.
+    let new_camera = insert(InsertableCamera { name: name }, &conn).map_err(|error| {
+        println!("Failed to create new camera! The error was {}", error);
+        ApiError {
+            error: "Failed to create new camera",
+            status: Status::InternalServerError,
         }
-    }
+    })?;
+
+    // Generate a new token for the camera.
+    let new_camera_token = camera_tokens::insert(
+        InsertableCameraToken {
+            camera_id: new_camera.camera_id,
+        },
+        &conn,
+    )
+    .map_err(|error| {
+        println!(
+            "Failed to add camera token for camera {}! The error was {}",
+            new_camera.camera_id, error
+        );
+        delete(new_camera.camera_id, &conn)
+            .expect("Failed to delete new camera while handling camera token error!");
+        return ApiError {
+            error: "Failed to add camera token",
+            status: Status::InternalServerError,
+        };
+    })?;
+
+    // Create a pair between the current user and the new camera.
+    // This basically means the user who made the camera is automatically given access.
+    users_cameras::insert(
+        InsertableUsersCamera {
+            camera_id: new_camera.camera_id,
+            user_id: user_token.user_id,
+        },
+        &conn,
+    )
+    .map_err(|error| {
+        println!(
+            "Failed to pair user {} to camera {}! The error was {}",
+            user_token.user_id, new_camera.camera_id, error
+        );
+        camera_tokens::delete(new_camera.camera_id, &conn)
+            .expect("Failed to delete new camera token while handling pair user to camera error!");
+        delete(new_camera.camera_id, &conn)
+            .expect("Failed to delete new camera while handling pair user to camera error!");
+        return ApiError {
+            error: "Failed to pair user to camera",
+            status: Status::InternalServerError,
+        };
+    })?;
+
+    Ok(Json(new_camera_token))
 }
 
+/// Stores a new image. Returns the seconds since epoch used as the image name
 #[post("/UploadImage", format = "image/jpeg", data = "<image>")]
-pub fn upload_image(image: Data, camera_token: CameraToken) -> ApiResponse {
+pub fn upload_image(image: Data, camera_token: CameraToken) -> Result<String, ApiError> {
     let images_directory =
         env::var("IMAGES_DIRECTORY").expect("IMAGES_DIRECTORY environment variable is not set!");
 
@@ -140,21 +145,18 @@ pub fn upload_image(image: Data, camera_token: CameraToken) -> ApiResponse {
         .expect("Failed to get current time somehow?")
         .as_secs();
 
-    match image.stream_to_file(format!(
-        "{}/{}/{}.jpg",
-        images_directory, camera_token.camera_id, current_time
-    )) {
-        Ok(size) => {
-            return ApiResponse {
-                json: json!(size),
-                status: Status::Created,
-            }
-        }
-        Err(error) => {
-            return ApiResponse {
-                json: json!({ "error": error.to_string() }),
+    image
+        .stream_to_file(format!(
+            "{}/{}/{}.jpg",
+            images_directory, camera_token.camera_id, current_time
+        ))
+        .map_err(|error| {
+            println!("Failed to stream image to file! The error was {}", error);
+            ApiError {
+                error: "Failed to save image to server",
                 status: Status::InternalServerError,
             }
-        }
-    }
+        })?;
+
+    Ok(current_time.to_string())
 }

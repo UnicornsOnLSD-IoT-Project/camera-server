@@ -14,6 +14,7 @@ mod camera_tokens;
 mod enums {
     pub mod token_error;
 }
+mod api_error;
 mod schema;
 mod user;
 mod user_tokens;
@@ -28,21 +29,6 @@ use rocket_contrib::json::{Json, JsonValue};
 
 #[database("camera-server-db")]
 pub struct CameraServerDbConn(diesel::PgConnection);
-
-#[derive(Debug)]
-pub struct ApiResponse {
-    json: JsonValue,
-    status: Status,
-}
-
-impl<'r> Responder<'r> for ApiResponse {
-    fn respond_to(self, req: &Request) -> response::Result<'r> {
-        Response::build_from(self.json.respond_to(&req).unwrap())
-            .status(self.status)
-            .header(ContentType::JSON)
-            .ok()
-    }
-}
 
 #[get("/")]
 fn index(conn: CameraServerDbConn) -> Json<Vec<user::User>> {
