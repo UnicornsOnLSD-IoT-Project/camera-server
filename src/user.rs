@@ -16,14 +16,6 @@ use rocket_contrib::json::Json;
 use serde::{Deserialize, Serialize};
 use user_tokens::InsertableUserToken;
 
-#[derive(Debug)]
-pub enum LoginError {
-    UsernameNotFound,
-    IncorrectUsernameOrPassword,
-    UserLoginNotProvided,
-    ParseError,
-}
-
 #[derive(Queryable, AsChangeset, Deserialize, Serialize)]
 #[table_name = "users"]
 pub struct User {
