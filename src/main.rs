@@ -25,28 +25,12 @@ use rocket_contrib::json::Json;
 #[database("camera-server-db")]
 pub struct CameraServerDbConn(diesel::PgConnection);
 
-#[get("/")]
-fn index(conn: CameraServerDbConn) -> Json<Vec<user::User>> {
-    Json(user::all(&conn).unwrap())
-}
-
-#[get("/whoami")]
-fn whoami(user_token: user_tokens::UserToken) -> String {
-    format!(
-        "Hello, {}. The token you used was {}",
-        user_token.user_id.to_string(),
-        user_token.user_token.to_string()
-    )
-}
-
 fn main() {
     rocket::ignite()
         .attach(CameraServerDbConn::fairing())
         .mount(
             "/",
             routes![
-                index,
-                whoami,
                 user::add_user,
                 user::login,
                 camera::add_new_camera,
