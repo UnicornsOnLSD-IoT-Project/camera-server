@@ -20,8 +20,6 @@ mod user;
 mod user_tokens;
 mod users_cameras;
 
-use rocket_contrib::json::Json;
-
 #[database("camera-server-db")]
 pub struct CameraServerDbConn(diesel::PgConnection);
 
