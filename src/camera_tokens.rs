@@ -28,7 +28,8 @@ impl<'a, 'r> FromRequest<'a, 'r> for CameraToken {
                         return Outcome::Failure((Status::BadRequest, TokenError::ParseError))
                     }
                 };
-                let connection = CameraServerDbConn::from_request(&request).unwrap();
+                let connection = CameraServerDbConn::from_request(&request)
+                    .expect("Failed to get DB connection on CameraToken request guard");
                 match get(parsed_token, &connection) {
                     Ok(user_token) => return Outcome::Success(user_token),
 
