@@ -1,2 +1,5 @@
 [global.databases]
 camera-server-db = { url = "postgres://8W6Gz8wKn5CEBVBrzN3yFsVeShV8LzUu:fVKnE9BXN4cVzQuvJESP35DDqeRrtzMq@localhost/camera-server-db" }
+
+[development]
+address = "0.0.0.0"
