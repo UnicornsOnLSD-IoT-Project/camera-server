@@ -57,7 +57,7 @@ impl UserInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthentiationResult {
     pub user_info: UserInfo,
-    pub user_token: UserToken,
+    pub user_token: uuid::Uuid,
 }
 
 pub fn all(connection: &PgConnection) -> QueryResult<Vec<User>> {
@@ -107,7 +107,7 @@ pub fn is_login_valid(username: String, password: String, connection: &PgConnect
 pub fn add_user(
     conn: CameraServerDbConn,
     new_user: Json<InsertableUser>,
-) -> Result<Json<UserToken>, ApiError> {
+) -> Result<Json<AuthentiationResult>, ApiError> {
     if new_user.password.chars().count() < 8 {
         return Err(ApiError {
             error: "Password must be at least 8 characters long",
@@ -160,7 +160,13 @@ pub fn add_user(
         }
     })?;
 
-    Ok(Json(new_user_token))
+    Ok(Json(AuthentiationResult {
+        user_info: UserInfo {
+            user_id: new_user_inserted.user_id,
+            username: new_user_inserted.username,
+        },
+        user_token: new_user_token.user_token,
+    }))
 }
 
 /// Generates a new token for the given user. Actual login checking is handled in the UserLogin request guard.
@@ -213,6 +219,6 @@ pub fn login(
             user_id: user.user_id,
             username: user.username,
         },
-        user_token: token,
+        user_token: token.user_token,
     }))
 }
