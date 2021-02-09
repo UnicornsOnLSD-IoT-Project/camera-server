@@ -65,14 +65,14 @@ pub fn delete(camera_id: uuid::Uuid, connection: &PgConnection) -> QueryResult<u
     diesel::delete(cameras::table.find(camera_id)).execute(connection)
 }
 
-#[get("/NewCamera?<name>")]
+#[post("/AddCamera", format = "json", data = "<camera_name>")]
 pub fn add_new_camera(
     conn: CameraServerDbConn,
     user_token: user_tokens::UserToken,
-    name: String,
+    camera_name: Json<InsertableCamera>,
 ) -> Result<Json<CameraToken>, ApiError> {
     // Insert a new camera into the DB. Returns the ID for the new camera.
-    let new_camera = insert(InsertableCamera { name: name }, &conn).map_err(|error| {
+    let new_camera = insert(camera_name.into_inner(), &conn).map_err(|error| {
         println!("Failed to create new camera! The error was {}", error);
         ApiError {
             error: "Failed to create new camera",
