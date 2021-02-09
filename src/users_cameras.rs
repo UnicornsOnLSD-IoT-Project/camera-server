@@ -1,6 +1,11 @@
-use super::schema::users_cameras;
+use super::schema::{cameras, users_cameras};
+use super::CameraServerDbConn;
+use crate::{api_error::ApiError, camera::Camera, user_tokens};
 use diesel::prelude::*;
 use diesel::{self};
+use rocket::get;
+use rocket::http::Status;
+use rocket_contrib::json::Json;
 use serde::{Deserialize, Serialize};
 
 #[derive(Queryable, AsChangeset, Deserialize, Serialize)]
@@ -54,8 +59,30 @@ pub fn delete(users_cameras_id: i32, connection: &PgConnection) -> QueryResult<u
 pub fn get_users_cameras(
     user_id: uuid::Uuid,
     connection: &PgConnection,
-) -> QueryResult<Vec<UsersCamera>> {
+) -> QueryResult<Vec<Camera>> {
     users_cameras::table
         .filter(users_cameras::user_id.eq(user_id))
+        .inner_join(cameras::table.on(cameras::camera_id.eq(users_cameras::camera_id)))
+        .select((cameras::camera_id, cameras::name))
         .load(connection)
+}
+
+/// Returns a list of camera IDs for a user's cameras
+#[get("/ListCameras")]
+pub fn list_cameras(
+    conn: CameraServerDbConn,
+    user_token: user_tokens::UserToken,
+) -> Result<Json<Vec<Camera>>, ApiError> {
+    let camera_list = get_users_cameras(user_token.user_id, &conn).map_err(|error| {
+        println!(
+            "Failed to get user's cameras for user ID {}. The error was {}",
+            user_token.user_id, error
+        );
+        ApiError {
+            error: "Database failed to get list of cameras",
+            status: Status::InternalServerError,
+        }
+    })?;
+
+    Ok(Json(camera_list))
 }
