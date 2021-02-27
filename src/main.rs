@@ -33,6 +33,7 @@ fn main() {
                 user::login,
                 camera::add_new_camera,
                 camera::upload_image,
+                camera::get_latest,
                 users_cameras::list_cameras,
             ],
         )

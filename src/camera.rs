@@ -10,11 +10,13 @@ use camera_tokens::{CameraToken, InsertableCameraToken};
 use diesel::prelude::*;
 use diesel::{self};
 use rocket::post;
+use rocket::response::Stream;
 use rocket::{http::Status, Data};
 use rocket_contrib::json::Json;
 use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::time::SystemTime;
-use std::{env, fs::create_dir_all};
+use std::{env, fs::create_dir_all, fs::read, fs::read_dir};
 
 #[derive(Queryable, AsChangeset, Deserialize, Serialize)]
 #[table_name = "cameras"]
@@ -159,4 +161,87 @@ pub fn upload_image(image: Data, camera_token: CameraToken) -> Result<String, Ap
         })?;
 
     Ok(current_time.to_string())
+}
+
+#[get("/Cameras/<camera_id_string>/LatestImage", format = "image/jpeg")]
+pub fn get_latest(
+    conn: CameraServerDbConn,
+    user_token: user_tokens::UserToken,
+    camera_id_string: String,
+) -> Result<Stream<File>, ApiError> {
+    let camera_id = uuid::Uuid::parse_str(&camera_id_string).map_err(|error| {
+        println!(
+            "Failed to parse camera id into UUID: Input was {}, error was {}",
+            camera_id_string, error
+        );
+        ApiError {
+            error: "Failed to parse camera ID string",
+            status: Status::UnprocessableEntity,
+        }
+    })?;
+
+    let users_cameras_list =
+        users_cameras::get_users_cameras(user_token.user_id, &conn).map_err(|error| {
+            println!(
+                "Failed to get list of user's cameras! The error was {}",
+                error
+            );
+            ApiError {
+                error: "Failed to get list of owned cameras",
+                status: Status::InternalServerError,
+            }
+        })?;
+
+    // If the user doesn't have access to the camera (camera id is not returned by users_cameras), return an error
+    if !users_cameras_list
+        .iter()
+        .any(|users_camera| users_camera.camera_id == camera_id)
+    {
+        return Err(ApiError {
+            error: "User does not have access to camera",
+            status: Status::Unauthorized,
+        });
+    }
+
+    let images_directory_path =
+        env::var("IMAGES_DIRECTORY").expect("IMAGES_DIRECTORY environment variable is not set!");
+
+    let camera_directory = format!("{}/{}", images_directory_path, camera_id_string);
+
+    let image_list = read_dir(&camera_directory).map_err(|error| {
+        println!(
+            "Failed to directory {}! The error was {}",
+            camera_directory, error
+        );
+        ApiError {
+            error: "Failed to get list of images",
+            status: Status::InternalServerError,
+        }
+    })?;
+
+    // let mut sorted_image_list: Vec<Result<std::fs::DirEntry, std::io::Error>> =
+    //     image_list.collect::<Vec<Result<std::fs::DirEntry, std::io::Error>>>();
+
+    let mut sorted_image_list: Vec<std::fs::DirEntry> = image_list
+        .map(|x| x.expect("Failed to map to Vec<DirEntry>"))
+        .collect::<Vec<std::fs::DirEntry>>();
+
+    if sorted_image_list.len() == 0 {
+        return Err(ApiError {
+            error: "Camera has no images (or doesn't exist)",
+            status: Status::NotFound,
+        });
+    }
+
+    sorted_image_list.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+
+    File::open(sorted_image_list.last().unwrap().path())
+        .map(Stream::from)
+        .map_err(|error| {
+            println!("Failed to read file! The error was {}", error);
+            ApiError {
+                error: "Failed to load image",
+                status: Status::InternalServerError,
+            }
+        })
 }
