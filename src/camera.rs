@@ -1,7 +1,7 @@
 use crate::{
     api_error::ApiError,
     camera_tokens, user_tokens,
-    users_cameras::{self, InsertableUsersCamera},
+    users_cameras::{self, check_if_user_has_access_to_camera, InsertableUsersCamera},
     CameraServerDbConn,
 };
 
@@ -15,8 +15,9 @@ use rocket::{http::Status, Data};
 use rocket_contrib::json::Json;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::path::Path;
 use std::time::SystemTime;
-use std::{env, fs::create_dir_all, fs::read, fs::read_dir};
+use std::{env, fs::create_dir_all, fs::read_dir, fs::DirEntry};
 
 #[derive(Queryable, AsChangeset, Deserialize, Serialize)]
 #[table_name = "cameras"]
@@ -65,6 +66,45 @@ pub fn update(
 
 pub fn delete(camera_id: uuid::Uuid, connection: &PgConnection) -> QueryResult<usize> {
     diesel::delete(cameras::table.find(camera_id)).execute(connection)
+}
+
+/// Returns a sorted image list of the given directory (usually a camera directory in this case)
+/// Not to be confused the get_image_list() GET request (couldn't think of a better name).
+/// Returns a Vec<DirEntry> if successful, and an ApiError if something goes wrong.
+pub fn sorted_directory_list(camera_directory: &String) -> Result<Vec<DirEntry>, ApiError> {
+    let image_list = read_dir(camera_directory).map_err(|error| {
+        println!(
+            "Failed to directory {}! The error was {}",
+            camera_directory, error
+        );
+        ApiError {
+            error: "Failed to get list of images",
+            status: Status::InternalServerError,
+        }
+    })?;
+
+    let mut sorted_image_list: Vec<DirEntry> = image_list
+        .map(|x| x.expect("Failed to map to Vec<DirEntry>"))
+        .collect::<Vec<DirEntry>>();
+
+    if sorted_image_list.len() == 0 {
+        return Err(ApiError {
+            error: "Camera has no images (or doesn't exist)",
+            status: Status::NotFound,
+        });
+    }
+
+    sorted_image_list.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+
+    Ok(sorted_image_list)
+}
+
+pub fn images_directory() -> String {
+    env::var("IMAGES_DIRECTORY").expect("IMAGES_DIRECTORY environment variable is not set!")
+}
+
+pub fn camera_directory(images_directory_path: &String, camera_id_string: &String) -> String {
+    format!("{}/{}", images_directory_path, camera_id_string)
 }
 
 #[post("/AddCamera", format = "json", data = "<camera_name>")]
@@ -132,15 +172,10 @@ pub fn add_new_camera(
 /// Stores a new image. Returns the seconds since epoch used as the image name
 #[post("/UploadImage", format = "image/jpeg", data = "<image>")]
 pub fn upload_image(image: Data, camera_token: CameraToken) -> Result<String, ApiError> {
-    let images_directory =
-        env::var("IMAGES_DIRECTORY").expect("IMAGES_DIRECTORY environment variable is not set!");
+    let images_directory = images_directory();
 
-    create_dir_all(format!(
-        "{}/{}",
-        images_directory.clone(),
-        camera_token.camera_id
-    ))
-    .expect("Failed to create images directory");
+    create_dir_all(format!("{}/{}", &images_directory, camera_token.camera_id))
+        .expect("Failed to create images directory");
 
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -169,79 +204,49 @@ pub fn get_latest(
     user_token: user_tokens::UserToken,
     camera_id_string: String,
 ) -> Result<Stream<File>, ApiError> {
-    let camera_id = uuid::Uuid::parse_str(&camera_id_string).map_err(|error| {
-        println!(
-            "Failed to parse camera id into UUID: Input was {}, error was {}",
-            camera_id_string, error
-        );
+    check_if_user_has_access_to_camera(&conn, &user_token, &camera_id_string)?;
+
+    let images_directory_path = images_directory();
+
+    let camera_directory = camera_directory(&images_directory_path, &camera_id_string);
+
+    let sorted_image_list = sorted_directory_list(&camera_directory)?;
+
+    // It should be OK to do an expect() here since sorted_directory_list() already returns an error if the dir list is empty
+    File::open(
+        sorted_image_list
+            .last()
+            .expect("Failed to get the last element of the sorted image list somehow?")
+            .path(),
+    )
+    .map(Stream::from)
+    .map_err(|error| {
+        println!("Failed to read file! The error was {}", error);
         ApiError {
-            error: "Failed to parse camera ID string",
-            status: Status::UnprocessableEntity,
-        }
-    })?;
-
-    let users_cameras_list =
-        users_cameras::get_users_cameras(user_token.user_id, &conn).map_err(|error| {
-            println!(
-                "Failed to get list of user's cameras! The error was {}",
-                error
-            );
-            ApiError {
-                error: "Failed to get list of owned cameras",
-                status: Status::InternalServerError,
-            }
-        })?;
-
-    // If the user doesn't have access to the camera (camera id is not returned by users_cameras), return an error
-    if !users_cameras_list
-        .iter()
-        .any(|users_camera| users_camera.camera_id == camera_id)
-    {
-        return Err(ApiError {
-            error: "User does not have access to camera",
-            status: Status::Unauthorized,
-        });
-    }
-
-    let images_directory_path =
-        env::var("IMAGES_DIRECTORY").expect("IMAGES_DIRECTORY environment variable is not set!");
-
-    let camera_directory = format!("{}/{}", images_directory_path, camera_id_string);
-
-    let image_list = read_dir(&camera_directory).map_err(|error| {
-        println!(
-            "Failed to directory {}! The error was {}",
-            camera_directory, error
-        );
-        ApiError {
-            error: "Failed to get list of images",
+            error: "Failed to load image",
             status: Status::InternalServerError,
         }
-    })?;
+    })
+}
 
-    // let mut sorted_image_list: Vec<Result<std::fs::DirEntry, std::io::Error>> =
-    //     image_list.collect::<Vec<Result<std::fs::DirEntry, std::io::Error>>>();
+#[get("/Cameras/<camera_id_string>/ImageList")]
+pub fn get_image_list(
+    conn: CameraServerDbConn,
+    user_token: user_tokens::UserToken,
+    camera_id_string: String,
+) -> Result<Json<Vec<String>>, ApiError> {
+    let images_directory_path = images_directory();
+    let camera_directory = camera_directory(&images_directory_path, &camera_id_string);
 
-    let mut sorted_image_list: Vec<std::fs::DirEntry> = image_list
-        .map(|x| x.expect("Failed to map to Vec<DirEntry>"))
-        .collect::<Vec<std::fs::DirEntry>>();
+    check_if_user_has_access_to_camera(&conn, &user_token, &camera_id_string)?;
 
-    if sorted_image_list.len() == 0 {
-        return Err(ApiError {
-            error: "Camera has no images (or doesn't exist)",
-            status: Status::NotFound,
-        });
-    }
-
-    sorted_image_list.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
-
-    File::open(sorted_image_list.last().unwrap().path())
-        .map(Stream::from)
-        .map_err(|error| {
-            println!("Failed to read file! The error was {}", error);
-            ApiError {
-                error: "Failed to load image",
-                status: Status::InternalServerError,
-            }
+    let sorted_directory_list = sorted_directory_list(&camera_directory)?
+        .iter()
+        .map(|x| {
+            // This horrible thing removes the extension from the file name and effectively converts the DirEntrys to Strings (since returning &strs in Vecs is awkward to do)
+            Path::new(&x.file_name()).file_stem().expect("file_stem returned None! This should only happen if a file doesn't have a name somehow").to_str().expect("Failed to convert &OsStr to &str!").to_string()
         })
+        .collect();
+
+    Ok(Json(sorted_directory_list))
 }

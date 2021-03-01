@@ -34,6 +34,7 @@ fn main() {
                 camera::add_new_camera,
                 camera::upload_image,
                 camera::get_latest,
+                camera::get_image_list,
                 users_cameras::list_cameras,
             ],
         )

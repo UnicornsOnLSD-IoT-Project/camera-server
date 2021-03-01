@@ -67,6 +67,49 @@ pub fn get_users_cameras(
         .load(connection)
 }
 
+/// Checks if the user in user_token has access to the camera with an ID of camera_id_string.
+/// Returns an empty Ok() if access is allowed, returns ApiError if the user isn't allowed or if something else goes wrong.
+pub fn check_if_user_has_access_to_camera(
+    conn: &CameraServerDbConn,
+    user_token: &user_tokens::UserToken,
+    camera_id_string: &String,
+) -> Result<(), ApiError> {
+    let camera_id = uuid::Uuid::parse_str(camera_id_string).map_err(|error| {
+        println!(
+            "Failed to parse camera id into UUID: Input was {}, error was {}",
+            camera_id_string, error
+        );
+        ApiError {
+            error: "Failed to parse camera ID string",
+            status: Status::UnprocessableEntity,
+        }
+    })?;
+
+    let users_cameras_list = get_users_cameras(user_token.user_id, conn).map_err(|error| {
+        println!(
+            "Failed to get list of user's cameras! The error was {}",
+            error
+        );
+        ApiError {
+            error: "Failed to get list of owned cameras",
+            status: Status::InternalServerError,
+        }
+    })?;
+
+    // If the user doesn't have access to the camera (camera id is not returned by users_cameras), return an error
+    if !users_cameras_list
+        .iter()
+        .any(|users_camera| users_camera.camera_id == camera_id)
+    {
+        return Err(ApiError {
+            error: "User does not have access to camera",
+            status: Status::Unauthorized,
+        });
+    }
+
+    Ok(())
+}
+
 /// Returns a list of camera IDs for a user's cameras
 #[get("/ListCameras")]
 pub fn list_cameras(
