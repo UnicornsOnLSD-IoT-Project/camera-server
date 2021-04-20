@@ -71,7 +71,10 @@ pub fn delete(camera_id: uuid::Uuid, connection: &PgConnection) -> QueryResult<u
 /// Returns a sorted image list of the given directory (usually a camera directory in this case)
 /// Not to be confused the get_image_list() GET request (couldn't think of a better name).
 /// Returns a Vec<DirEntry> if successful, and an ApiError if something goes wrong.
-pub fn sorted_directory_list(camera_directory: &String) -> Result<Vec<DirEntry>, ApiError> {
+pub fn list_camera_directory(
+    camera_directory: &String,
+    sort: bool,
+) -> Result<Vec<DirEntry>, ApiError> {
     let image_list = read_dir(camera_directory).map_err(|error| {
         println!(
             "Failed to directory {}! The error was {}",
@@ -94,7 +97,9 @@ pub fn sorted_directory_list(camera_directory: &String) -> Result<Vec<DirEntry>,
         });
     }
 
-    sorted_image_list.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    if sort {
+        sorted_image_list.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    }
 
     Ok(sorted_image_list)
 }
@@ -210,7 +215,7 @@ pub fn get_latest(
 
     let camera_directory = camera_directory(&images_directory_path, &camera_id_string);
 
-    let sorted_image_list = sorted_directory_list(&camera_directory)?;
+    let sorted_image_list = list_camera_directory(&camera_directory, true)?;
 
     // It should be OK to do an expect() here since sorted_directory_list() already returns an error if the dir list is empty
     File::open(
@@ -240,7 +245,7 @@ pub fn get_image_list(
 
     check_if_user_has_access_to_camera(&conn, &user_token, &camera_id_string)?;
 
-    let sorted_directory_list = sorted_directory_list(&camera_directory)?
+    let sorted_directory_list = list_camera_directory(&camera_directory, true)?
         .iter()
         .map(|x| {
             // This horrible thing removes the extension from the file name and effectively converts the DirEntrys to Strings (since returning &strs in Vecs is awkward to do)
@@ -249,4 +254,44 @@ pub fn get_image_list(
         .collect();
 
     Ok(Json(sorted_directory_list))
+}
+
+#[get("/Cameras/<camera_id_string>/Image/<image_id_string>")]
+pub fn get_image(
+    conn: CameraServerDbConn,
+    user_token: user_tokens::UserToken,
+    camera_id_string: String,
+    image_id_string: String,
+) -> Result<Stream<File>, ApiError> {
+    check_if_user_has_access_to_camera(&conn, &user_token, &camera_id_string)?;
+
+    let images_directory_path = images_directory();
+
+    let camera_directory = camera_directory(&images_directory_path, &camera_id_string);
+
+    let image_list = list_camera_directory(&camera_directory, false)?;
+
+    let image_list_basenames: Vec<String> = image_list.iter()
+    .map(|x| {
+        Path::new(&x.file_name()).file_stem().expect("file_stem returned None! This should only happen if a file doesn't have a name somehow").to_str().expect("Failed to convert &OsStr to &str!").to_string()
+    })
+    .collect();
+
+    let image_index = image_list_basenames
+        .iter()
+        .position(|x| x == &image_id_string)
+        .ok_or(ApiError {
+            error: "Image not found",
+            status: Status::NotFound,
+        })?;
+
+    File::open(image_list[image_index].path())
+        .map(Stream::from)
+        .map_err(|error| {
+            println!("Failed to read file! The error was {}", error);
+            ApiError {
+                error: "Failed to load image",
+                status: Status::InternalServerError,
+            }
+        })
 }
