@@ -1,6 +1,8 @@
 use crate::{
     api_error::ApiError,
-    camera_tokens, user_tokens,
+    camera_tokens,
+    config::{self, Config},
+    user_tokens,
     users_cameras::{self, check_if_user_has_access_to_camera, InsertableUsersCamera},
     CameraServerDbConn,
 };
@@ -149,7 +151,7 @@ pub fn add_new_camera(
 
     // Create a pair between the current user and the new camera.
     // This basically means the user who made the camera is automatically given access.
-    users_cameras::insert(
+    let users_camera = users_cameras::insert(
         InsertableUsersCamera {
             camera_id: new_camera.camera_id,
             user_id: user_token.user_id,
@@ -167,6 +169,30 @@ pub fn add_new_camera(
             .expect("Failed to delete new camera while handling pair user to camera error!");
         return ApiError {
             error: "Failed to pair user to camera",
+            status: Status::InternalServerError,
+        };
+    })?;
+
+    config::insert(
+        Config {
+            camera_id: new_camera.camera_id,
+            interval: 10,
+        },
+        &conn,
+    )
+    .map_err(|error| {
+        println!(
+            "Failed to add config for {}! The error was {}",
+            new_camera.camera_id, error
+        );
+        users_cameras::delete(users_camera.users_cameras_id, &conn)
+            .expect("Failed to delete users camera while handling create config error!");
+        camera_tokens::delete(new_camera.camera_id, &conn)
+            .expect("Failed to delete new camera token while handling pair user to camera error!");
+        delete(new_camera.camera_id, &conn)
+            .expect("Failed to delete new camera while handling pair user to camera error!");
+        return ApiError {
+            error: "Failed to create camera config",
             status: Status::InternalServerError,
         };
     })?;
@@ -256,7 +282,10 @@ pub fn get_image_list(
     Ok(Json(sorted_directory_list))
 }
 
-#[get("/Cameras/<camera_id_string>/Image/<image_id_string>")]
+#[get(
+    "/Cameras/<camera_id_string>/Image/<image_id_string>",
+    format = "image/jpeg"
+)]
 pub fn get_image(
     conn: CameraServerDbConn,
     user_token: user_tokens::UserToken,

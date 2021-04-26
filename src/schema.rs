@@ -13,6 +13,13 @@ table! {
 }
 
 table! {
+    configs (camera_id) {
+        camera_id -> Uuid,
+        interval -> Int2,
+    }
+}
+
+table! {
     user_tokens (user_token) {
         user_token -> Uuid,
         user_id -> Uuid,
@@ -38,6 +45,7 @@ table! {
 allow_tables_to_appear_in_same_query!(
     camera_tokens,
     cameras,
+    configs,
     user_tokens,
     users,
     users_cameras,

@@ -15,6 +15,7 @@ mod enums {
     pub mod token_error;
 }
 mod api_error;
+mod config;
 mod schema;
 mod user;
 mod user_tokens;
