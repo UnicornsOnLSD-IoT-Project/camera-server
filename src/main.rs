@@ -38,6 +38,8 @@ fn main() {
                 camera::get_image_list,
                 camera::get_image,
                 users_cameras::list_cameras,
+                config::get_config_user,
+                config::get_config_camera,
             ],
         )
         .launch();

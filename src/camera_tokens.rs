@@ -31,7 +31,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for CameraToken {
                 let connection = CameraServerDbConn::from_request(&request)
                     .expect("Failed to get DB connection on CameraToken request guard");
                 match get(parsed_token, &connection) {
-                    Ok(user_token) => return Outcome::Success(user_token),
+                    Ok(camera_token) => return Outcome::Success(camera_token),
 
                     Err(_) => {
                         return Outcome::Failure((Status::Unauthorized, TokenError::NotFound))
