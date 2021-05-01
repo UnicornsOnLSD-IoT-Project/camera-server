@@ -94,3 +94,39 @@ pub fn get_config_camera(
 
     Ok(Json(config))
 }
+
+#[post(
+    "/Cameras/<camera_id_string>/UpdateConfig",
+    data = "<new_config>",
+    format = "json"
+)]
+pub fn update_config(
+    conn: CameraServerDbConn,
+    user_token: UserToken,
+    camera_id_string: String,
+    new_config: Json<Config>,
+) -> Result<Json<Config>, ApiError> {
+    let deserialized_new_config = new_config.into_inner();
+    check_if_user_has_access_to_camera(&conn, &user_token, &camera_id_string)?;
+
+    let camera_id = uuid::Uuid::parse_str(&camera_id_string).map_err(|error| {
+        println!(
+            "Failed to parse camera id into UUID: Input was {}, error was {}",
+            camera_id_string, error
+        );
+        ApiError {
+            error: "Failed to parse camera ID string",
+            status: Status::UnprocessableEntity,
+        }
+    })?;
+
+    update(camera_id, deserialized_new_config, &conn)
+        .map(|result| Json(result))
+        .map_err(|error| {
+            println!("Failed to update camera config! The error was {}", error);
+            return ApiError {
+                error: "Failed to update config",
+                status: Status::InternalServerError,
+            };
+        })
+}

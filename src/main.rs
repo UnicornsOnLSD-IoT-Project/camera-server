@@ -40,6 +40,7 @@ fn main() {
                 users_cameras::list_cameras,
                 config::get_config_user,
                 config::get_config_camera,
+                config::update_config,
             ],
         )
         .launch();
